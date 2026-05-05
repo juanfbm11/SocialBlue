@@ -9,8 +9,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [newPost, setNewPost] = useState('');
 
-  // 1. CAMBIA ESTO: Pon un ID real de un usuario que ya tengas en tu tabla 'users'
-  const MOCK_USER_ID = 'TU_UUID_AQUI'; 
+  const MOCK_USER_ID = '1a0148c4-b0f4-4664-bbfa-0ec165b43c48'; 
 
   useEffect(() => {
     fetchPosts();
