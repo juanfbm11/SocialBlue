@@ -1,92 +1,383 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { Post } from '../../types';
+import React, { useEffect, useState, useCallback, memo } from 'react';
+import { 
+  View, 
+  Text, 
+  FlatList, 
+  TextInput, 
+  TouchableOpacity, 
+  ActivityIndicator,
+  StatusBar,
+  StyleSheet,
+  Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  Image,
+  Keyboard
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
+import * as LucideIcons from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 
-
-export default function HomeScreen() {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [newPost, setNewPost] = useState('');
-
-  const MOCK_USER_ID = '1a0148c4-b0f4-4664-bbfa-0ec165b43c48'; 
-
-  useEffect(() => {
-    fetchPosts();
-  }, []);
-
-  async function fetchPosts() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*, users(username)')
-      .order('created_at', { ascending: false });
-    
-    if (data) setPosts(data as any);
-    setLoading(false);
-  }
-
-  async function handleCreatePost() {
-    if (!newPost.trim()) return;
-    const { error } = await supabase
-      .from('posts')
-      .insert([{ content: newPost, user_id: MOCK_USER_ID }]);
-    
-    if (!error) {
-      setNewPost('');
-      fetchPosts();
-    }
-  }
-
+// 1. COMPONENTE DE INPUT (MEMOIZADO)
+const PostInput = memo(({ 
+  newPost, 
+  setNewPost, 
+  selectedImage, 
+  setSelectedImage, 
+  pickImage, 
+  handleCreatePost, 
+  uploading,
+  userAvatar
+}: any) => {
   return (
-    <View style={styles.container}>
-      <Text style={styles.logo}>SocialBlue</Text>
-
-      <View style={styles.inputBox}>
+    <View style={styles.inputArea}>
+      <View style={styles.inputRow}>
+        <View style={[styles.avatar, { width: 36, height: 36, backgroundColor: '#e2e8f0' }]}>
+          {userAvatar ? (
+            <Image source={{ uri: userAvatar }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+          ) : (
+            <LucideIcons.User size={20} color="#64748b" />
+          )}
+        </View>
         <TextInput 
-          style={styles.input}
-          placeholder="¿Qué está pasando?"
+          style={styles.textInput}
+          placeholder="¿Qué estás pensando?"
           value={newPost}
           onChangeText={setNewPost}
-          placeholderTextColor="#999"
+          multiline
+          blurOnSubmit={false}
         />
-        <TouchableOpacity style={styles.postBtn} onPress={handleCreatePost}>
-          <Text style={styles.postBtnText}>Publicar</Text>
+      </View>
+
+      {selectedImage && (
+        <View style={styles.previewContainer}>
+          <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
+          <TouchableOpacity style={styles.removeImage} onPress={() => setSelectedImage(null)}>
+            <LucideIcons.X size={16} color="white" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <View style={styles.inputFooter}>
+        <View style={styles.footerIcons}>
+          <TouchableOpacity style={styles.footerIcon} onPress={pickImage}>
+            <LucideIcons.Image size={24} color="#2563eb" />
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity 
+          style={[styles.publishButton, (!newPost.trim() && !selectedImage) && { opacity: 0.5 }]}
+          onPress={handleCreatePost}
+          disabled={(!newPost.trim() && !selectedImage) || uploading}
+        >
+          {uploading ? <ActivityIndicator color="white" size="small" /> : <Text style={styles.publishButtonText}>Publicar</Text>}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
+
+// 2. COMPONENTE DE POST CARD (MEMOIZADO)
+const PostCard = memo(({ item, userId, onLike, onComment, onToggleComments, isCommentsVisible }: any) => {
+  const likesCount = item.likes?.length || 0;
+  const commentsCount = item.comments?.length || 0;
+  const userHasLiked = item.likes?.some((like: any) => like.user_id === userId);
+  const avatarUrl = item.users?.avatar_url;
+
+  return (
+    <View style={styles.postCard}>
+      <View style={styles.postHeader}>
+        <View style={[styles.avatar, { backgroundColor: '#e2e8f0' }]}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+          ) : (
+            <LucideIcons.User size={24} color="#64748b" />
+          )}
+        </View>
+        <View>
+          <Text style={styles.username}>@{item.users?.username || 'usuario'}</Text>
+          <Text style={styles.timestamp}>Publicado hace poco</Text>
+        </View>
+      </View>
+      
+      <Text style={styles.postContent}>{item.content}</Text>
+      
+      {item.image_url && (
+        <Image 
+          source={{ uri: item.image_url }} 
+          style={styles.postImage} 
+          resizeMode="cover"
+        />
+      )}
+      
+      <View style={styles.postActions}>
+        <TouchableOpacity style={styles.actionItem} onPress={() => onLike(item.id, userHasLiked)}>
+          <LucideIcons.Heart size={20} color={userHasLiked ? "#ef4444" : "#64748b"} fill={userHasLiked ? "#ef4444" : "transparent"} />
+          <Text style={[styles.actionText, userHasLiked && { color: "#ef4444" }]}>{likesCount}</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.actionItem} onPress={() => onComment(item.id)}>
+          <LucideIcons.MessageCircle size={20} color="#64748b" />
+          <Text style={styles.actionText}>{commentsCount}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => onToggleComments(item.id)}>
+          <Text style={styles.viewCommentsText}>{isCommentsVisible ? 'Ocultar' : 'Ver comentarios'}</Text>
         </TouchableOpacity>
       </View>
 
-      {loading ? (
-        <ActivityIndicator color="#007AFF" size="large" style={{marginTop: 50}} />
-      ) : (
-        <FlatList
-          data={posts}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.user}>@{item.users?.username || 'usuario'}</Text>
-              <Text style={styles.content}>{item.content}</Text>
-              <View style={styles.footer}>
-                <TouchableOpacity><Text style={styles.actionText}>💙 Like</Text></TouchableOpacity>
-                <TouchableOpacity><Text style={styles.actionText}>💬 Comentar</Text></TouchableOpacity>
-              </View>
+      {isCommentsVisible && item.comments?.map((comment: any) => (
+        <View key={comment.id} style={styles.commentItem}>
+          <View style={styles.commentRow}>
+            <View style={[styles.commentAvatar, { backgroundColor: '#e2e8f0' }]}>
+              {comment.users?.avatar_url ? (
+                <Image source={{ uri: comment.users.avatar_url }} style={{ width: 24, height: 24, borderRadius: 12 }} />
+              ) : (
+                <LucideIcons.User size={14} color="#64748b" />
+              )}
             </View>
-          )}
-        />
-      )}
+            <Text style={styles.commentUser}>@{comment.users?.username}: <Text style={styles.commentContent}>{comment.content}</Text></Text>
+          </View>
+        </View>
+      ))}
     </View>
+  );
+});
+
+export default function HomeScreen({ navigation }: any) {
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newPost, setNewPost] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [visibleComments, setVisibleComments] = useState<{[key: string]: boolean}>({});
+
+  useEffect(() => {
+    fetchUser();
+    fetchPosts();
+  }, []);
+
+  const fetchUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.id) {
+      setUserId(session.user.id);
+      // Fetch current user profile to get avatar
+      const { data } = await supabase
+        .from('users')
+        .select('avatar_url')
+        .eq('id', session.user.id)
+        .single();
+      if (data) setUserAvatar(data.avatar_url);
+    }
+  };
+
+  const fetchPosts = async () => {
+    if (!refreshing) setLoading(true);
+    const { data, error } = await supabase
+      .from('posts')
+      .select(`
+        *,
+        users(username, avatar_url),
+        likes(user_id),
+        comments(*, users(username, avatar_url))
+      `)
+      .order('created_at', { ascending: false });
+    
+    if (data) setPosts(data);
+    setLoading(false);
+    setRefreshing(false);
+  };
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchPosts();
+  }, []);
+
+  const pickImage = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+    });
+    if (!result.canceled) {
+      setSelectedImage(result.assets[0].uri);
+    }
+  }, []);
+
+  const handleCreatePost = useCallback(async () => {
+    if (!newPost.trim() && !selectedImage) return;
+    if (!userId) return;
+
+    Keyboard.dismiss();
+    setUploading(true);
+    let imageUrl = null;
+
+    if (selectedImage) {
+      try {
+        const ext = selectedImage.split('.').pop();
+        const fileName = `${userId}/posts/${Date.now()}.${ext}`;
+        const response = await fetch(selectedImage);
+        const blob = await response.blob();
+        await supabase.storage.from('post-images').upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
+        imageUrl = supabase.storage.from('post-images').getPublicUrl(fileName).data.publicUrl;
+      } catch (e) {
+        Alert.alert('Error al subir imagen');
+      }
+    }
+
+    const { error } = await supabase.from('posts').insert([{ content: newPost, user_id: userId, image_url: imageUrl }]);
+    setUploading(false);
+    if (!error) {
+      setNewPost('');
+      setSelectedImage(null);
+      fetchPosts();
+    }
+  }, [newPost, selectedImage, userId]);
+
+  const handleLike = useCallback(async (postId: string, userHasLiked: boolean) => {
+    if (!userId) return;
+    if (userHasLiked) {
+      await supabase.from('likes').delete().match({ post_id: postId, user_id: userId });
+    } else {
+      await supabase.from('likes').insert([{ post_id: postId, user_id: userId }]);
+    }
+    fetchPosts();
+  }, [userId]);
+
+  const openCommentModal = useCallback((postId: string) => {
+    if (!userId) return;
+    setSelectedPostId(postId);
+    setCommentModalVisible(true);
+  }, [userId]);
+
+  const submitComment = useCallback(async () => {
+    if (!commentText.trim() || !selectedPostId || !userId) return;
+    const { error } = await supabase.from('comments').insert([{ post_id: selectedPostId, user_id: userId, content: commentText }]);
+    if (!error) {
+      setCommentText('');
+      setCommentModalVisible(false);
+      Keyboard.dismiss();
+      fetchPosts();
+    }
+  }, [commentText, selectedPostId, userId]);
+
+  const toggleComments = useCallback((postId: string) => {
+    setVisibleComments(prev => ({ ...prev, [postId]: !prev[postId] }));
+  }, []);
+
+  const handleLogout = () => {
+    supabase.auth.signOut();
+    navigation.navigate('Login');
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.header}>
+        <Text style={styles.logo}>Social<Text style={{color: '#2563eb'}}>Blue</Text></Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('MyPosts')}>
+            <LucideIcons.User size={24} color="#1e293b" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconButton} onPress={handleLogout}>
+            <LucideIcons.LogOut size={24} color="#dc2626" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <PostInput 
+        newPost={newPost}
+        setNewPost={setNewPost}
+        selectedImage={selectedImage}
+        setSelectedImage={setSelectedImage}
+        pickImage={pickImage}
+        handleCreatePost={handleCreatePost}
+        uploading={uploading}
+        userAvatar={userAvatar}
+      />
+
+      <FlatList
+        data={posts}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <PostCard 
+            item={item} 
+            userId={userId} 
+            onLike={handleLike} 
+            onComment={openCommentModal} 
+            onToggleComments={toggleComments}
+            isCommentsVisible={visibleComments[item.id]}
+          />
+        )}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+      />
+
+      <Modal visible={commentModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Comentar</Text>
+              <TouchableOpacity onPress={() => setCommentModalVisible(false)}><LucideIcons.X size={24} /></TouchableOpacity>
+            </View>
+            <TextInput style={styles.commentInput} placeholder="Escribe algo..." multiline value={commentText} onChangeText={setCommentText} autoFocus />
+            <TouchableOpacity style={styles.submitButton} onPress={submitComment}><Text style={styles.submitButtonText}>Enviar</Text></TouchableOpacity>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0F2F5', paddingTop: 60 },
-  logo: { fontSize: 26, fontWeight: '900', color: '#007AFF', paddingHorizontal: 20, marginBottom: 15 },
-  inputBox: { backgroundColor: '#FFF', padding: 15, marginHorizontal: 15, borderRadius: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 15, elevation: 2 },
-  input: { flex: 1, fontSize: 16, color: '#333' },
-  postBtn: { backgroundColor: '#007AFF', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20 },
-  postBtnText: { color: '#FFF', fontWeight: 'bold' },
-  card: { backgroundColor: '#FFF', padding: 18, marginHorizontal: 15, marginVertical: 8, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 3 },
-  user: { fontWeight: 'bold', color: '#007AFF', marginBottom: 5 },
-  content: { fontSize: 16, color: '#444', lineHeight: 22 },
-  footer: { flexDirection: 'row', marginTop: 15, borderTopWidth: 0.5, borderColor: '#EEE', paddingTop: 10, gap: 20 },
-  actionText: { color: '#666', fontWeight: '600' }
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  headerRight: { flexDirection: 'row' },
+  logo: { fontSize: 22, fontWeight: '900' },
+  iconButton: { marginLeft: 15 },
+  inputArea: { backgroundColor: 'white', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  inputRow: { flexDirection: 'row' },
+  textInput: { flex: 1, marginLeft: 15, fontSize: 16 },
+  previewContainer: { marginTop: 15, position: 'relative' },
+  imagePreview: { width: '100%', height: 200, borderRadius: 12 },
+  removeImage: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 15, padding: 5 },
+  inputFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, alignItems: 'center' },
+  footerIcons: { flexDirection: 'row' },
+  footerIcon: { marginRight: 20 },
+  publishButton: { backgroundColor: '#2563eb', paddingVertical: 8, paddingHorizontal: 20, borderRadius: 20 },
+  publishButtonText: { color: 'white', fontWeight: 'bold' },
+  postCard: { backgroundColor: 'white', padding: 20, marginBottom: 10 },
+  postHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#e2e8f0', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatarText: { color: 'white', fontWeight: 'bold' },
+  username: { fontWeight: 'bold', fontSize: 16 },
+  timestamp: { fontSize: 12, color: '#64748b' },
+  postContent: { fontSize: 16, marginBottom: 15, lineWeight: 22 },
+  postImage: { width: '100%', height: 300, borderRadius: 12, marginBottom: 15 },
+  postActions: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 15 },
+  actionItem: { flexDirection: 'row', alignItems: 'center', marginRight: 25 },
+  actionText: { marginLeft: 6, fontWeight: '600', color: '#64748b' },
+  viewCommentsText: { color: '#2563eb', fontWeight: '600' },
+  commentItem: { marginTop: 10, paddingLeft: 10 },
+  commentRow: { flexDirection: 'row', alignItems: 'center' },
+  commentAvatar: { width: 24, height: 24, borderRadius: 12, marginRight: 8, justifyContent: 'center', alignItems: 'center' },
+  commentUser: { fontWeight: 'bold', fontSize: 14, flex: 1 },
+  commentContent: { fontWeight: 'normal', color: '#475569' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, minHeight: 300 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold' },
+  commentInput: { backgroundColor: '#f1f5f9', borderRadius: 10, padding: 15, height: 100, textAlignVertical: 'top', marginBottom: 15 },
+  submitButton: { backgroundColor: '#2563eb', padding: 15, borderRadius: 10, alignItems: 'center' },
+  submitButtonText: { color: 'white', fontWeight: 'bold' }
 });

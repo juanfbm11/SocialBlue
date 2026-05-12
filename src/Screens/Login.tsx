@@ -1,32 +1,29 @@
-import { Pressable, Text, View, TextInput, StyleSheet } from "react-native";
 import React, { useState } from "react";
+import { 
+  Text,
+  View,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableOpacity,
+  ImageBackground,
+  ScrollView,
+  ActivityIndicator
+} from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { supabase } from '../../lib/supabase';
+import StyledInput from "../components/StyledInput";
+import GradientButton from "../components/GradientButton";
+import BrandHeader from "../components/BrandHeader";
+import GlassCard from "../components/GlassCard";
 
-function CustomButton({ title, onPress, color = "#b34332", outline = false }: any) {
-  const [pressed, setPressed] = useState(false);
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={() => setPressed(true)}
-      onPressOut={() => setPressed(false)}
-      style={[
-        styles.boton,
-        outline
-          ? { backgroundColor: "transparent", borderWidth: 2, borderColor: color }
-          : { backgroundColor: color },
-        pressed ? styles.botonPresionado : null,
-      ]}
-    >
-      <Text style={[styles.botonTexto, outline ? { color: color } : { color: "#ffffff" }]}>
-        {title}
-      </Text>
-    </Pressable>
-  );
-}
+const BG_IMAGE = require('../../assets/bg.png');
 
 export default function Login({ navigation }: any) {
   const [email, setEmail] = useState("");
   const [contrasena, setContrasena] = useState("");
   const [errors, setErrors] = useState({ email: "", password: "" });
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
   const validate = () => {
     let valid = true;
@@ -49,75 +46,115 @@ export default function Login({ navigation }: any) {
     return valid;
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (validate()) {
-      navigation.navigate("Home");
+      setAuthLoading(true);
+      setAuthError('');
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password: contrasena,
+        });
+        
+        setAuthLoading(false);
+        
+        if (error) {
+          setAuthError(error.message);
+        } else {
+          navigation.navigate("Home");
+        }
+      } catch (e: any) {
+        setAuthLoading(false);
+        setAuthError(e.message || "Error al iniciar sesión");
+      }
     }
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.titulo}>Iniciar Sesión</Text>
-        <Text style={styles.subtitulo}>Bienvenido</Text>
-
-        {/* Email */}
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          placeholder="Ingresa tu email"
-          placeholderTextColor="#aaa"
-          value={email}
-          onChangeText={(text) => {
-            setEmail(text);
-            if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
-          }}
-          style={[styles.input, errors.email ? styles.inputError : null]}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
-
-        {/* Password */}
-        <Text style={styles.label}>Contraseña</Text>
-        <TextInput
-          placeholder="Ingresa tu contraseña"
-          placeholderTextColor="#aaa"
-          value={contrasena}
-          onChangeText={(text) => {
-            setContrasena(text);
-            if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
-          }}
-          style={[styles.input, errors.password ? styles.inputError : null]}
-          secureTextEntry
-        />
-        {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
-
-        {/* Botones */}
-        <CustomButton title="Iniciar Sesión" color="rgb(213, 132, 26)" onPress={handleLogin} />
-        <CustomButton
-          title="Registrarse"
-          color="#1a17d3"
-          outline={true}
-          onPress={() => navigation.navigate("Registro")}
-        />
-
-        <Text style={styles.olvide}>¿Olvidaste tu contraseña?</Text>
-      </View>
+    <View style={{ flex: 1, backgroundColor: '#1e3a8a' }}>
+      <ImageBackground
+        source={BG_IMAGE}
+        style={{ flex: 1, width: '100%', height: '100%' }}
+        resizeMode="cover"
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.5)' }}>
+          <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              style={{ flex: 1 }}
+            >
+              <ScrollView 
+                contentContainerStyle={{ 
+                  flexGrow: 1, 
+                  justifyContent: 'center', 
+                  alignItems: 'center', 
+                  padding: 24 
+                }}
+                showsVerticalScrollIndicator={false}
+              >
+                <View className="w-full max-w-[420px] items-center">
+                  <BrandHeader />
+                  <View className="w-full -mt-6">
+                    <GlassCard className="w-full bg-white/85">
+                      <Text className="text-xl font-bold text-slate-900 mb-8 text-center tracking-tight">
+                        Accede a tu cuenta
+                      </Text>
+                      <StyledInput
+                        label="Email"
+                        placeholder="tu@email.com"
+                        icon="Mail"
+                        value={email}
+                        onChangeText={(text) => {
+                          setEmail(text);
+                          if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+                        }}
+                        error={errors.email}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                      />
+                      <StyledInput
+                        label="Contraseña"
+                        placeholder="••••••••"
+                        icon="Lock"
+                        value={contrasena}
+                        onChangeText={(text) => {
+                          setContrasena(text);
+                          if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
+                        }}
+                        error={errors.password}
+                        secureTextEntry
+                      />
+                      <TouchableOpacity className="self-end mb-6">
+                        <Text className="text-blue-700 font-bold">¿Olvidaste tu contraseña?</Text>
+                      </TouchableOpacity>
+                      <View className="w-full mt-2">
+                        <GradientButton 
+                          title="Iniciar Sesión" 
+                          onPress={handleLogin} 
+                        />
+                        {authLoading && (
+                          <ActivityIndicator size="small" color="#2563eb" style={{ marginTop: 15 }} />
+                        )}
+                        {authError ? (
+                          <Text style={{ color: '#ef4444', textAlign: 'center', marginTop: 15, fontSize: 14 }}>
+                            {authError}
+                          </Text>
+                        ) : null}
+                        <View className="flex-row items-center justify-center mt-10">
+                          <Text className="text-slate-600 font-medium">¿No tienes cuenta? </Text>
+                          <TouchableOpacity onPress={() => navigation.navigate("Registro")}>
+                            <Text className="text-blue-700 font-bold">Regístrate gratis</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </GlassCard>
+                  </View>
+                </View>
+              </ScrollView>
+            </KeyboardAvoidingView>
+          </SafeAreaView>
+        </View>
+      </ImageBackground>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
-  card: { backgroundColor: "rgba(226,223,218,0.76)", width: "100%", maxWidth: 380, borderRadius: 16, padding: 24 },
-  titulo: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 4 },
-  subtitulo: { fontSize: 14, fontWeight: "bold", textAlign: "center", marginBottom: 24 },
-  label: { fontSize: 13, marginBottom: 6, marginLeft: 2 },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, paddingVertical: 11, paddingHorizontal: 14, fontSize: 15, marginBottom: 4 },
-  inputError: { borderColor: "#e24b4a", borderWidth: 1.5 },
-  errorText: { fontSize: 12, color: "#e24b4a", marginBottom: 12, marginLeft: 2 },
-  boton: { paddingVertical: 13, borderRadius: 8, alignItems: "center", marginBottom: 10 },
-  botonPresionado: { opacity: 0.75, transform: [{ scale: 0.95 }] },
-  botonTexto: { fontSize: 15, fontWeight: "600" },
-  olvide: { textAlign: "center", fontSize: 13, color: "#aaa", marginTop: 8 },
-});
