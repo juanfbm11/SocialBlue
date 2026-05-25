@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback, memo } from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  TextInput, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  FlatList,
+  TextInput,
+  TouchableOpacity,
   ActivityIndicator,
   StatusBar,
   StyleSheet,
@@ -19,15 +19,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import * as LucideIcons from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
-
+ 
 // 1. COMPONENTE DE INPUT (MEMOIZADO)
-const PostInput = memo(({ 
-  newPost, 
-  setNewPost, 
-  selectedImage, 
-  setSelectedImage, 
-  pickImage, 
-  handleCreatePost, 
+const PostInput = memo(({
+  newPost,
+  setNewPost,
+  selectedImage,
+  setSelectedImage,
+  pickImage,
+  handleCreatePost,
   uploading,
   userAvatar
 }: any) => {
@@ -41,7 +41,7 @@ const PostInput = memo(({
             <LucideIcons.User size={20} color="#64748b" />
           )}
         </View>
-        <TextInput 
+        <TextInput
           style={styles.textInput}
           placeholder="¿Qué estás pensando?"
           value={newPost}
@@ -50,7 +50,7 @@ const PostInput = memo(({
           blurOnSubmit={false}
         />
       </View>
-
+ 
       {selectedImage && (
         <View style={styles.previewContainer}>
           <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
@@ -59,14 +59,14 @@ const PostInput = memo(({
           </TouchableOpacity>
         </View>
       )}
-
+ 
       <View style={styles.inputFooter}>
         <View style={styles.footerIcons}>
           <TouchableOpacity style={styles.footerIcon} onPress={pickImage}>
             <LucideIcons.Image size={24} color="#2563eb" />
           </TouchableOpacity>
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.publishButton, (!newPost.trim() && !selectedImage) && { opacity: 0.5 }]}
           onPress={handleCreatePost}
           disabled={(!newPost.trim() && !selectedImage) || uploading}
@@ -77,14 +77,14 @@ const PostInput = memo(({
     </View>
   );
 });
-
+ 
 // 2. COMPONENTE DE POST CARD (MEMOIZADO)
 const PostCard = memo(({ item, userId, onLike, onComment, onToggleComments, isCommentsVisible }: any) => {
   const likesCount = item.likes?.length || 0;
   const commentsCount = item.comments?.length || 0;
   const userHasLiked = item.likes?.some((like: any) => like.user_id === userId);
   const avatarUrl = item.users?.avatar_url;
-
+ 
   return (
     <View style={styles.postCard}>
       <View style={styles.postHeader}>
@@ -100,33 +100,33 @@ const PostCard = memo(({ item, userId, onLike, onComment, onToggleComments, isCo
           <Text style={styles.timestamp}>Publicado hace poco</Text>
         </View>
       </View>
-      
+     
       <Text style={styles.postContent}>{item.content}</Text>
-      
+     
       {item.image_url && (
-        <Image 
-          source={{ uri: item.image_url }} 
-          style={styles.postImage} 
+        <Image
+          source={{ uri: item.image_url }}
+          style={styles.postImage}
           resizeMode="cover"
         />
       )}
-      
+     
       <View style={styles.postActions}>
         <TouchableOpacity style={styles.actionItem} onPress={() => onLike(item.id, userHasLiked)}>
           <LucideIcons.Heart size={20} color={userHasLiked ? "#ef4444" : "#64748b"} fill={userHasLiked ? "#ef4444" : "transparent"} />
           <Text style={[styles.actionText, userHasLiked && { color: "#ef4444" }]}>{likesCount}</Text>
         </TouchableOpacity>
-        
+       
         <TouchableOpacity style={styles.actionItem} onPress={() => onComment(item.id)}>
           <LucideIcons.MessageCircle size={20} color="#64748b" />
           <Text style={styles.actionText}>{commentsCount}</Text>
         </TouchableOpacity>
-
+ 
         <TouchableOpacity onPress={() => onToggleComments(item.id)}>
           <Text style={styles.viewCommentsText}>{isCommentsVisible ? 'Ocultar' : 'Ver comentarios'}</Text>
         </TouchableOpacity>
       </View>
-
+ 
       {isCommentsVisible && item.comments?.map((comment: any) => (
         <View key={comment.id} style={styles.commentItem}>
           <View style={styles.commentRow}>
@@ -144,7 +144,7 @@ const PostCard = memo(({ item, userId, onLike, onComment, onToggleComments, isCo
     </View>
   );
 });
-
+ 
 export default function HomeScreen({ navigation }: any) {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -152,20 +152,21 @@ export default function HomeScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
-  
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+ 
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-
+ 
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [visibleComments, setVisibleComments] = useState<{[key: string]: boolean}>({});
-
+ 
   useEffect(() => {
     fetchUser();
     fetchPosts();
   }, []);
-
+ 
   const fetchUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user?.id) {
@@ -177,9 +178,12 @@ export default function HomeScreen({ navigation }: any) {
         .eq('id', session.user.id)
         .single();
       if (data) setUserAvatar(data.avatar_url);
+      if (session.user.email?.toLowerCase() === 'admin@gmail.com') {
+        setIsSuperAdmin(true);
+      }
     }
   };
-
+ 
   const fetchPosts = async () => {
     if (!refreshing) setLoading(true);
     const { data, error } = await supabase
@@ -191,17 +195,17 @@ export default function HomeScreen({ navigation }: any) {
         comments(*, users(username, avatar_url))
       `)
       .order('created_at', { ascending: false });
-    
+   
     if (data) setPosts(data);
     setLoading(false);
     setRefreshing(false);
   };
-
+ 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     fetchPosts();
   }, []);
-
+ 
   const pickImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
@@ -213,15 +217,15 @@ export default function HomeScreen({ navigation }: any) {
       setSelectedImage(result.assets[0].uri);
     }
   }, []);
-
+ 
   const handleCreatePost = useCallback(async () => {
     if (!newPost.trim() && !selectedImage) return;
     if (!userId) return;
-
+ 
     Keyboard.dismiss();
     setUploading(true);
     let imageUrl = null;
-
+ 
     if (selectedImage) {
       try {
         const ext = selectedImage.split('.').pop();
@@ -234,7 +238,7 @@ export default function HomeScreen({ navigation }: any) {
         Alert.alert('Error al subir imagen');
       }
     }
-
+ 
     const { error } = await supabase.from('posts').insert([{ content: newPost, user_id: userId, image_url: imageUrl }]);
     setUploading(false);
     if (!error) {
@@ -243,7 +247,7 @@ export default function HomeScreen({ navigation }: any) {
       fetchPosts();
     }
   }, [newPost, selectedImage, userId]);
-
+ 
   const handleLike = useCallback(async (postId: string, userHasLiked: boolean) => {
     if (!userId) return;
     if (userHasLiked) {
@@ -253,13 +257,13 @@ export default function HomeScreen({ navigation }: any) {
     }
     fetchPosts();
   }, [userId]);
-
+ 
   const openCommentModal = useCallback((postId: string) => {
     if (!userId) return;
     setSelectedPostId(postId);
     setCommentModalVisible(true);
   }, [userId]);
-
+ 
   const submitComment = useCallback(async () => {
     if (!commentText.trim() || !selectedPostId || !userId) return;
     const { error } = await supabase.from('comments').insert([{ post_id: selectedPostId, user_id: userId, content: commentText }]);
@@ -270,16 +274,16 @@ export default function HomeScreen({ navigation }: any) {
       fetchPosts();
     }
   }, [commentText, selectedPostId, userId]);
-
+ 
   const toggleComments = useCallback((postId: string) => {
     setVisibleComments(prev => ({ ...prev, [postId]: !prev[postId] }));
   }, []);
-
+ 
   const handleLogout = () => {
     supabase.auth.signOut();
     navigation.navigate('Login');
   };
-
+ 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" />
@@ -294,8 +298,18 @@ export default function HomeScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
       </View>
-
-      <PostInput 
+ 
+      {isSuperAdmin && (
+        <TouchableOpacity
+          style={styles.adminButton}
+          onPress={() => navigation.navigate('SuperAdmin')}
+        >
+          <LucideIcons.ShieldCheck size={20} color="white" />
+          <Text style={styles.adminButtonText}>Ir a Panel Super Admin</Text>
+        </TouchableOpacity>
+      )}
+ 
+      <PostInput
         newPost={newPost}
         setNewPost={setNewPost}
         selectedImage={selectedImage}
@@ -305,16 +319,16 @@ export default function HomeScreen({ navigation }: any) {
         uploading={uploading}
         userAvatar={userAvatar}
       />
-
+ 
       <FlatList
         data={posts}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <PostCard 
-            item={item} 
-            userId={userId} 
-            onLike={handleLike} 
-            onComment={openCommentModal} 
+          <PostCard
+            item={item}
+            userId={userId}
+            onLike={handleLike}
+            onComment={openCommentModal}
             onToggleComments={toggleComments}
             isCommentsVisible={visibleComments[item.id]}
           />
@@ -322,7 +336,7 @@ export default function HomeScreen({ navigation }: any) {
         onRefresh={handleRefresh}
         refreshing={refreshing}
       />
-
+ 
       <Modal visible={commentModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalContent}>
@@ -338,7 +352,7 @@ export default function HomeScreen({ navigation }: any) {
     </SafeAreaView>
   );
 }
-
+ 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
@@ -379,5 +393,22 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: 'bold' },
   commentInput: { backgroundColor: '#f1f5f9', borderRadius: 10, padding: 15, height: 100, textAlignVertical: 'top', marginBottom: 15 },
   submitButton: { backgroundColor: '#2563eb', padding: 15, borderRadius: 10, alignItems: 'center' },
-  submitButtonText: { color: 'white', fontWeight: 'bold' }
+  submitButtonText: { color: 'white', fontWeight: 'bold' },
+  adminButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 12,
+    paddingVertical: 16,
+    borderRadius: 16,
+    backgroundColor: '#2563eb',
+  },
+  adminButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+    marginLeft: 10,
+  }
 });

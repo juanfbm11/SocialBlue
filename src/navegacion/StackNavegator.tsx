@@ -5,9 +5,10 @@ import Home from '../Screens/Home'
 import Login from '../Screens/Login'
 import Registro from '../Screens/Registro'
 import MyPosts from '../Screens/MyPosts'
-
+import SuperAdmin from '../Screens/SuperAdmin.tsx'
+ 
 const Stack = createNativeStackNavigator();
-
+ 
 export default function StackNavegator() {
   return (
     <NavigationContainer>
@@ -16,6 +17,7 @@ export default function StackNavegator() {
         <Stack.Screen name="Registro" component={Registro} />
         <Stack.Screen name="Home" component={Home} />
         <Stack.Screen name="MyPosts" component={MyPosts} />
+        <Stack.Screen name="SuperAdmin" component={SuperAdmin} />
       </Stack.Navigator>
     </NavigationContainer>
   );
