@@ -20,7 +20,7 @@ import { supabase } from '../../lib/supabase';
 import * as LucideIcons from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
  
-// 1. COMPONENTE DE INPUT (MEMOIZADO)
+
 const PostInput = memo(({
   newPost,
   setNewPost,
@@ -78,7 +78,7 @@ const PostInput = memo(({
   );
 });
  
-// 2. COMPONENTE DE POST CARD (MEMOIZADO)
+
 const PostCard = memo(({ item, userId, onLike, onComment, onToggleComments, isCommentsVisible }: any) => {
   const likesCount = item.likes?.length || 0;
   const commentsCount = item.comments?.length || 0;
@@ -171,7 +171,7 @@ export default function HomeScreen({ navigation }: any) {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user?.id) {
       setUserId(session.user.id);
-      // Fetch current user profile to get avatar
+
       const { data } = await supabase
         .from('users')
         .select('avatar_url')
