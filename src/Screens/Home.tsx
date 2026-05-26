@@ -117,6 +117,9 @@ const PostCard = memo(
     onToggleComments,
     isCommentsVisible,
     onPressUser,
+    isSuperAdmin,
+    onDeletePost,
+    onDeleteComment,
   }: any) => {
     const likesCount = item.likes?.length || 0;
     const commentsCount = item.comments?.length || 0;
@@ -130,33 +133,51 @@ const PostCard = memo(
     return (
       <View style={styles.postCard}>
         {/* HEADER */}
-        <TouchableOpacity
-          style={styles.postHeader}
-          onPress={() => onPressUser(item.user_id)}
-          activeOpacity={0.7}>
-          <View style={[styles.avatar, { backgroundColor: "#e2e8f0" }]}>
-            {avatarUrl ? (
-              <Image
-                source={{ uri: avatarUrl }}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                }}
-              />
-            ) : (
-              <LucideIcons.User size={24} color="#64748b" />
-            )}
-          </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+          <TouchableOpacity
+            style={[styles.postHeader, { marginBottom: 0, flex: 1 }]}
+            onPress={() => onPressUser(item.user_id)}
+            activeOpacity={0.7}>
+            <View style={[styles.avatar, { backgroundColor: "#e2e8f0" }]}>
+              {avatarUrl ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                  }}
+                />
+              ) : (
+                <LucideIcons.User size={24} color="#64748b" />
+              )}
+            </View>
 
-          <View>
-            <Text style={styles.username}>
-              @{item.users?.username || "usuario"}
-            </Text>
+            <View>
+              <Text style={styles.username}>
+                @{item.users?.username || "usuario"}
+              </Text>
 
-            <Text style={styles.timestamp}>Publicado hace poco</Text>
-          </View>
-        </TouchableOpacity>
+              <Text style={styles.timestamp}>Publicado hace poco</Text>
+            </View>
+          </TouchableOpacity>
+
+          {isSuperAdmin && (
+            <TouchableOpacity
+              onPress={() => onDeletePost(item.id)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#fee2e2',
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                borderRadius: 6,
+              }}>
+              <LucideIcons.Trash2 size={16} color="#dc2626" />
+              <Text style={{ color: '#dc2626', fontWeight: '600', fontSize: 12, marginLeft: 4 }}>Eliminar</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* CONTENIDO */}
         <Text style={styles.postContent}>{item.content}</Text>
@@ -211,36 +232,44 @@ const PostCard = memo(
         {isCommentsVisible &&
           item.comments?.map((comment: any) => (
             <View key={comment.id} style={styles.commentItem}>
-              <View style={styles.commentRow}>
-                <View
-                  style={[
-                    styles.commentAvatar,
-                    {
-                      backgroundColor: "#e2e8f0",
-                    },
-                  ]}>
-                  {comment.users?.avatar_url ? (
-                    <Image
-                      source={{
-                        uri: comment.users.avatar_url,
-                      }}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 12,
-                      }}
-                    />
-                  ) : (
-                    <LucideIcons.User size={14} color="#64748b" />
-                  )}
+              <View style={[styles.commentRow, { justifyContent: 'space-between' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View
+                    style={[
+                      styles.commentAvatar,
+                      {
+                        backgroundColor: "#e2e8f0",
+                      },
+                    ]}>
+                    {comment.users?.avatar_url ? (
+                      <Image
+                        source={{
+                          uri: comment.users.avatar_url,
+                        }}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 12,
+                        }}
+                      />
+                    ) : (
+                      <LucideIcons.User size={14} color="#64748b" />
+                    )}
+                  </View>
+
+                  <TouchableOpacity onPress={() => onPressUser(comment.user_id)} style={{ flex: 1 }}>
+                    <Text style={styles.commentUser}>
+                      @{comment.users?.username}:{" "}
+                      <Text style={styles.commentContent}>{comment.content}</Text>
+                    </Text>
+                  </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity onPress={() => onPressUser(comment.user_id)}>
-                  <Text style={styles.commentUser}>
-                    @{comment.users?.username}:{" "}
-                    <Text style={styles.commentContent}>{comment.content}</Text>
-                  </Text>
-                </TouchableOpacity>
+                {isSuperAdmin && (
+                  <TouchableOpacity onPress={() => onDeleteComment(comment.id)} style={{ padding: 6 }}>
+                    <LucideIcons.Trash2 size={14} color="#dc2626" />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))}
@@ -292,16 +321,17 @@ export default function HomeScreen({ navigation }: any) {
 
       const { data } = await supabase
         .from("users")
-        .select("avatar_url")
+        .select("avatar_url, role, email")
         .eq("id", session.user.id)
         .single();
 
       if (data) {
         setUserAvatar(data.avatar_url);
-      }
-
-      if (session.user.email?.toLowerCase() === "admin@gmail.com") {
-        setIsSuperAdmin(true);
+        const adminByEmail = session.user.email?.toLowerCase() === "admin@gmail.com";
+        const adminByRole = data.role?.toLowerCase() === "admin";
+        setIsSuperAdmin(adminByEmail || adminByRole);
+      } else {
+        setIsSuperAdmin(session.user.email?.toLowerCase() === "admin@gmail.com");
       }
     }
   };
@@ -458,6 +488,142 @@ export default function HomeScreen({ navigation }: any) {
     }
   }, [commentText, selectedPostId, userId]);
 
+  const handleDeletePost = useCallback((postId: string) => {
+    const confirmMessage = "¿Estás seguro de que deseas borrar este post como Administrador? Esta acción no se puede deshacer.";
+
+    const performDelete = async () => {
+      try {
+        const { error: likesError } = await supabase
+          .from('likes')
+          .delete()
+          .eq('post_id', postId)
+          .select('id');
+        if (likesError) {
+          console.error('Supabase delete likes error', likesError);
+          Alert.alert('Error', 'No se pudieron eliminar los likes del post: ' + likesError.message);
+          return;
+        }
+
+        const { error: commentsError } = await supabase
+          .from('comments')
+          .delete()
+          .eq('post_id', postId)
+          .select('id');
+        if (commentsError) {
+          console.error('Supabase delete comments error', commentsError);
+          Alert.alert('Error', 'No se pudieron eliminar los comentarios del post: ' + commentsError.message);
+          return;
+        }
+
+        const { data: remainingLikes, error: remainingLikesError } = await supabase
+          .from('likes')
+          .select('id')
+          .eq('post_id', postId);
+        if (remainingLikesError) {
+          console.error('Supabase select remaining likes error', remainingLikesError);
+        }
+        if (remainingLikes?.length) {
+          console.error('Remaining likes after delete', remainingLikes.length, remainingLikes);
+          Alert.alert('Error', 'El post aún tiene likes referenciando y no pueden borrarse todavía.');
+          return;
+        }
+       
+        const { data: remainingComments, error: remainingCommentsError } = await supabase
+          .from('comments')
+          .select('id')
+          .eq('post_id', postId);
+        if (remainingCommentsError) {
+          console.error('Supabase select remaining comments error', remainingCommentsError);
+        }
+        if (remainingComments?.length) {
+          console.error('Remaining comments after delete', remainingComments.length, remainingComments);
+          Alert.alert('Error', 'El post aún tiene comentarios referenciando y no pueden borrarse todavía.');
+          return;
+        }
+
+        const { error } = await supabase
+          .from('posts')
+          .delete()
+          .eq('id', postId);
+
+        if (!error) {
+          Alert.alert("Éxito", "Post eliminado correctamente por el Administrador.");
+          fetchPosts();
+        } else {
+          console.error("Supabase delete post error", error);
+          Alert.alert("Error", "No se pudo eliminar el post: " + error.message);
+        }
+      } catch (e: any) {
+        console.error("Unexpected delete post error", e);
+        Alert.alert("Error", "Ocurrió un error inesperado al eliminar: " + (e?.message || e));
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(confirmMessage)) {
+        performDelete();
+      }
+      return;
+    }
+
+    Alert.alert(
+      "Confirmar Eliminación",
+      confirmMessage,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Borrar",
+          style: "destructive",
+          onPress: performDelete,
+        }
+      ]
+    );
+  }, []);
+
+  const handleDeleteComment = useCallback((commentId: string) => {
+    const confirmMessage = "¿Estás seguro de que deseas borrar este comentario como Administrador? Esta acción no se puede deshacer.";
+
+    const performDelete = async () => {
+      try {
+        const { error } = await supabase
+          .from('comments')
+          .delete()
+          .eq('id', commentId);
+
+        if (!error) {
+          Alert.alert("Éxito", "Comentario eliminado correctamente.");
+          fetchPosts();
+        } else {
+          console.error("Supabase delete comment error", error);
+          Alert.alert("Error", "No se pudo eliminar el comentario: " + error.message);
+        }
+      } catch (e: any) {
+        console.error("Unexpected delete comment error", e);
+        Alert.alert("Error", "Ocurrió un error inesperado al eliminar: " + (e?.message || e));
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(confirmMessage)) {
+        performDelete();
+      }
+      return;
+    }
+
+    Alert.alert(
+      "Confirmar Eliminación",
+      confirmMessage,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Borrar",
+          style: "destructive",
+          onPress: performDelete,
+        }
+      ]
+    );
+  }, []);
+
   const toggleComments = useCallback((postId: string) => {
     setVisibleComments((prev) => ({
       ...prev,
@@ -548,6 +714,9 @@ export default function HomeScreen({ navigation }: any) {
             onToggleComments={toggleComments}
             isCommentsVisible={visibleComments[item.id]}
             onPressUser={handlePressUser}
+            isSuperAdmin={isSuperAdmin}
+            onDeletePost={handleDeletePost}
+            onDeleteComment={handleDeleteComment}
           />
         )}
         onRefresh={handleRefresh}

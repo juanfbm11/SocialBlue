@@ -9,7 +9,8 @@ import {
   StatusBar,
   StyleSheet,
   Image,
-  Alert
+  Alert,
+  Platform
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import * as LucideIcons from 'lucide-react-native';
@@ -41,14 +42,15 @@ function SuperAdminScreen({ navigation }: any) {
     // Validamos en la tabla 'users' si el usuario actual es el Administrador
     const { data: profile } = await supabase
       .from('users')
-      .select('username, email')
+      .select('username, email, role')
       .eq('id', session.user.id)
       .single();
  
     const isSuperUser =
       session.user.email?.toLowerCase() === SUPER_ADMIN_USERNAME ||
       profile?.username === SUPER_ADMIN_USERNAME ||
-      profile?.email?.toLowerCase() === SUPER_ADMIN_USERNAME;
+      profile?.email?.toLowerCase() === SUPER_ADMIN_USERNAME ||
+      profile?.role?.toLowerCase() === 'admin';
  
     if (isSuperUser) {
       setIsAdmin(true);
@@ -80,7 +82,7 @@ function SuperAdminScreen({ navigation }: any) {
    
     const { data, error } = await supabase
       .from('posts')
-      .select('*, likes(user_id), comments(*)')
+      .select('*, likes(user_id), comments(*, users(username, avatar_url))')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
  
@@ -90,30 +92,209 @@ function SuperAdminScreen({ navigation }: any) {
  
 
   const handleDeletePost = (postId: string) => {
+    const confirmMessage = "¿Estás seguro de que deseas borrar este post como Super Admin? Esta acción no se puede deshacer.";
+
+    const performDelete = async () => {
+      try {
+        const { error: likesError } = await supabase
+          .from('likes')
+          .delete()
+          .eq('post_id', postId)
+          .select('id');
+        if (likesError) {
+          console.error('Supabase delete likes error', likesError);
+          Alert.alert('Error', 'No se pudieron eliminar los likes del post: ' + likesError.message);
+          return;
+        }
+
+        const { error: commentsError } = await supabase
+          .from('comments')
+          .delete()
+          .eq('post_id', postId)
+          .select('id');
+        if (commentsError) {
+          console.error('Supabase delete comments error', commentsError);
+          Alert.alert('Error', 'No se pudieron eliminar los comentarios del post: ' + commentsError.message);
+          return;
+        }
+       
+        const { data: remainingLikes, error: remainingLikesError } = await supabase
+          .from('likes')
+          .select('id')
+          .eq('post_id', postId);
+        if (remainingLikesError) {
+          console.error('Supabase select remaining likes error', remainingLikesError);
+        }
+        if (remainingLikes?.length) {
+          console.error('Remaining likes after delete', remainingLikes.length, remainingLikes);
+          Alert.alert('Error', 'El post aún tiene likes referenciando y no pueden borrarse todavía.');
+          return;
+        }
+       
+        const { data: remainingComments, error: remainingCommentsError } = await supabase
+          .from('comments')
+          .select('id')
+          .eq('post_id', postId);
+        if (remainingCommentsError) {
+          console.error('Supabase select remaining comments error', remainingCommentsError);
+        }
+        if (remainingComments?.length) {
+          console.error('Remaining comments after delete', remainingComments.length, remainingComments);
+          Alert.alert('Error', 'El post aún tiene comentarios referenciando y no pueden borrarse todavía.');
+          return;
+        }
+
+        const { error } = await supabase
+          .from('posts')
+          .delete()
+          .eq('id', postId);
+ 
+        if (!error) {
+          Alert.alert("Éxito", "Post eliminado correctamente por el Administrador.");
+          if (selectedUser) fetchPostsForUser(selectedUser);
+        } else {
+          console.error("Supabase delete post error", error);
+          Alert.alert("Error", "No se pudo eliminar el post: " + error.message);
+        }
+      } catch (e: any) {
+        console.error("Unexpected delete post error", e);
+        Alert.alert("Error", "Ocurrió un error inesperado al eliminar: " + (e?.message || e));
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(confirmMessage)) {
+        performDelete();
+      }
+      return;
+    }
+
     Alert.alert(
       "Confirmar Eliminación",
-      "¿Estás seguro de que deseas borrar este post como Super Admin? Esta acción no se puede deshacer.",
+      confirmMessage,
       [
         { text: "Cancelar", style: "cancel" },
         {
           text: "Borrar",
           style: "destructive",
-          onPress: async () => {
-            await supabase.from('likes').delete().eq('post_id', postId);
-            await supabase.from('comments').delete().eq('post_id', postId);
-           
-            const { error } = await supabase
-              .from('posts')
-              .delete()
-              .eq('id', postId);
- 
-            if (!error) {
-              Alert.alert("Éxito", "Post eliminado correctamente por el Administrador.");
-              if (selectedUser) fetchPostsForUser(selectedUser);
-            } else {
-              Alert.alert("Error", "No se pudo eliminar el post.");
-            }
-          }
+          onPress: performDelete,
+        }
+      ]
+    );
+  };
+
+  const handleDeleteComment = (commentId: string) => {
+    const confirmMessage = "¿Estás seguro de que deseas borrar este comentario? Esta acción no se puede deshacer.";
+
+    const performDelete = async () => {
+      try {
+        const { error } = await supabase
+          .from('comments')
+          .delete()
+          .eq('id', commentId);
+
+        if (!error) {
+          Alert.alert("Éxito", "Comentario eliminado correctamente.");
+          if (selectedUser) fetchPostsForUser(selectedUser);
+        } else {
+          console.error("Supabase delete comment error", error);
+          Alert.alert("Error", "No se pudo eliminar el comentario: " + error.message);
+        }
+      } catch (e: any) {
+        console.error("Unexpected delete comment error", e);
+        Alert.alert("Error", "Ocurrió un error inesperado al eliminar: " + (e?.message || e));
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(confirmMessage)) {
+        performDelete();
+      }
+      return;
+    }
+
+    Alert.alert(
+      "Confirmar Eliminación",
+      confirmMessage,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Borrar",
+          style: "destructive",
+          onPress: performDelete,
+        }
+      ]
+    );
+  };
+
+  const handleDeleteUser = (targetUserId: string) => {
+    if (selectedUser?.email?.toLowerCase() === SUPER_ADMIN_USERNAME || selectedUser?.username === SUPER_ADMIN_USERNAME) {
+      Alert.alert("Acción Denegada", "No puedes eliminar la cuenta de Administrador.");
+      return;
+    }
+
+    const confirmMessage = `¿Estás seguro de que deseas eliminar por completo a @${selectedUser?.username}? Se borrarán permanentemente sus posts, comentarios y me gusta. Esta acción no se puede deshacer.`;
+
+    const performDelete = async () => {
+      try {
+        // 1. Obtener los IDs de las publicaciones del usuario a eliminar
+        const { data: postsToDelete } = await supabase
+          .from('posts')
+          .select('id')
+          .eq('user_id', targetUserId);
+        
+        const postIds = postsToDelete?.map(p => p.id) || [];
+
+        // 2. Eliminar likes y comentarios asociados a las publicaciones del usuario
+        if (postIds.length > 0) {
+          await supabase.from('likes').delete().in('post_id', postIds);
+          await supabase.from('comments').delete().in('post_id', postIds);
+        }
+
+        // 3. Eliminar likes hechos por el usuario en cualquier publicación
+        await supabase.from('likes').delete().eq('user_id', targetUserId);
+
+        // 4. Eliminar comentarios hechos por el usuario en cualquier publicación
+        await supabase.from('comments').delete().eq('user_id', targetUserId);
+
+        // 5. Eliminar las publicaciones del usuario
+        await supabase.from('posts').delete().eq('user_id', targetUserId);
+
+        // 6. Eliminar el perfil del usuario de la tabla 'users'
+        const { error } = await supabase
+          .from('users')
+          .delete()
+          .eq('id', targetUserId);
+
+        if (!error) {
+          Alert.alert("Éxito", "Usuario y todos sus datos relacionados eliminados correctamente.");
+          setSelectedUser(null);
+          fetchAllUsers();
+        } else {
+          console.error("Supabase delete user error", error);
+          Alert.alert("Error", "No se pudo eliminar el usuario de la base de datos: " + error.message);
+        }
+      } catch (err: any) {
+        Alert.alert("Error", "Ocurrió un error inesperado: " + err.message);
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(confirmMessage)) {
+        performDelete();
+      }
+      return;
+    }
+
+    Alert.alert(
+      "Confirmar Eliminación de Usuario",
+      confirmMessage,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar Usuario",
+          style: "destructive",
+          onPress: performDelete,
         }
       ]
     );
@@ -182,18 +363,27 @@ function SuperAdminScreen({ navigation }: any) {
               <Text style={styles.backToUsersText}>Volver a usuarios</Text>
             </TouchableOpacity>
            
-            <View style={styles.userInfoRow}>
-              <View style={styles.avatarLarge}>
-                {selectedUser.avatar_url ? (
-                  <Image source={{ uri: selectedUser.avatar_url }} style={{ width: 50, height: 50, borderRadius: 25 }} />
-                ) : (
-                  <LucideIcons.User size={28} color="#64748b" />
-                )}
+            <View style={[styles.userInfoRow, { justifyContent: 'space-between', alignItems: 'center' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={styles.avatarLarge}>
+                  {selectedUser.avatar_url ? (
+                    <Image source={{ uri: selectedUser.avatar_url }} style={{ width: 50, height: 50, borderRadius: 25 }} />
+                  ) : (
+                    <LucideIcons.User size={28} color="#64748b" />
+                  )}
+                </View>
+                <View>
+                  <Text style={styles.selectedName}>{selectedUser.nombre} {selectedUser.apellido}</Text>
+                  <Text style={styles.selectedUsername}>@{selectedUser.username}</Text>
+                </View>
               </View>
-              <View>
-                <Text style={styles.selectedName}>{selectedUser.nombre} {selectedUser.apellido}</Text>
-                <Text style={styles.selectedUsername}>@{selectedUser.username}</Text>
-              </View>
+
+              <TouchableOpacity
+                style={styles.deleteUserBtn}
+                onPress={() => handleDeleteUser(selectedUser.id)}>
+                <LucideIcons.UserX size={18} color="#dc2626" />
+                <Text style={styles.deleteUserBtnText}>Eliminar Usuario</Text>
+              </TouchableOpacity>
             </View>
           </View>
  
@@ -225,6 +415,36 @@ function SuperAdminScreen({ navigation }: any) {
                     <Text style={styles.statText}>{item.likes?.length || 0} Likes</Text>
                     <Text style={styles.statText}>{item.comments?.length || 0} Comentarios</Text>
                   </View>
+
+                  {/* SECCIÓN DE COMENTARIOS PARA ADMINISTRADOR */}
+                  {item.comments && item.comments.length > 0 && (
+                    <View style={styles.commentsContainer}>
+                      <Text style={styles.commentsSectionTitle}>Comentarios:</Text>
+                      {item.comments.map((comment: any) => (
+                        <View key={comment.id} style={styles.adminCommentCard}>
+                          <View style={styles.commentRow}>
+                            <View style={styles.commentUserAndAvatar}>
+                              <View style={styles.commentAvatarSmall}>
+                                {comment.users?.avatar_url ? (
+                                  <Image source={{ uri: comment.users.avatar_url }} style={styles.commentAvatarImg} />
+                                ) : (
+                                  <LucideIcons.User size={12} color="#64748b" />
+                                )}
+                              </View>
+                              <Text style={styles.commentUsername}>
+                                @{comment.users?.username || 'usuario'}: <Text style={styles.commentBody}>{comment.content}</Text>
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.deleteCommentBtn}
+                              onPress={() => handleDeleteComment(comment.id)}>
+                              <LucideIcons.Trash2 size={14} color="#dc2626" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
               )}
               ListEmptyComponent={<Text style={styles.emptyText}>Este usuario no tiene publicaciones.</Text>}
@@ -265,6 +485,18 @@ const styles = StyleSheet.create({
   postImage: { width: '100%', height: 200, borderRadius: 8, marginBottom: 10 },
   postStatsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 },
   statText: { fontSize: 13, color: '#64748b', marginRight: 16 },
+  deleteUserBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fee2e2', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
+  deleteUserBtnText: { color: '#dc2626', fontWeight: '700', fontSize: 13, marginLeft: 6 },
+  commentsContainer: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  commentsSectionTitle: { fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 6 },
+  adminCommentCard: { backgroundColor: '#f8fafc', padding: 8, borderRadius: 6, marginBottom: 6 },
+  commentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  commentUserAndAvatar: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+  commentAvatarSmall: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#e2e8f0', justifyContent: 'center', alignItems: 'center', marginRight: 8 },
+  commentAvatarImg: { width: 20, height: 20, borderRadius: 10 },
+  commentUsername: { fontSize: 12, fontWeight: '700', color: '#1e293b', flex: 1 },
+  commentBody: { fontWeight: '400', color: '#475569' },
+  deleteCommentBtn: { padding: 4 },
   emptyText: { textAlign: 'center', marginTop: 40, color: '#64748b', fontSize: 15 }
 });
  
