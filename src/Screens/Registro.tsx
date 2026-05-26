@@ -27,7 +27,7 @@ export default function Registro({ navigation }: any) {
   const [confirmarContrasena, setConfirmarContrasena] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const [errors, setErrors] = useState({
+  const [errors, setErrors] =  useState({
     username: "", nombre: "", apellido: "", email: "",
     contrasena: "", confirmarContrasena: ""
   });
@@ -111,7 +111,8 @@ export default function Registro({ navigation }: any) {
           username, 
           nombre, 
           apellido, 
-          email 
+          email,
+          contrasena 
         }]);
 
       if (dbError) {
