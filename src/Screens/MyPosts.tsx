@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
@@ -54,7 +54,7 @@ export default function MyPostsScreen({ navigation }: any) {
       .select('*, users(username, avatar_url), likes(user_id), comments(*)')
       .eq('user_id', uid)
       .order('created_at', { ascending: false });
-    
+
     if (data) setPosts(data);
     setLoading(false);
   }
@@ -72,31 +72,70 @@ export default function MyPostsScreen({ navigation }: any) {
 
       setUploadingAvatar(true);
       const uri = result.assets[0].uri;
-      const ext = uri.split('.').pop();
-      const fileName = `${userId}/avatar.${ext}`;
-      
+
       const response = await fetch(uri);
       const blob = await response.blob();
-      
+
+      const contentType = blob.type || 'image/jpeg';
+      const maybeExt = (contentType.split('/')[1] || 'jpg').split('+')[0];
+
+      // Nombre único con timestamp — evita colisiones y el error "resource already exists"
+      const fileName = `${userId}/avatar_${Date.now()}.${maybeExt}`;
+
+      // Borra todos los avatares anteriores de este usuario
+      const { data: existingFiles } = await supabase.storage
+        .from('post-images')
+        .list(userId);
+
+      const avatarFiles = (existingFiles || [])
+        .filter(f => f.name.startsWith('avatar_'))
+        .map(f => `${userId}/${f.name}`);
+
+      if (avatarFiles.length > 0) {
+        await supabase.storage.from('post-images').remove(avatarFiles);
+      }
+
+      // Sube el nuevo avatar (INSERT puro, sin upsert)
       const { error: uploadError } = await supabase.storage
         .from('post-images')
-        .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
+        .upload(fileName, blob, { contentType });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('avatar upload error', uploadError);
+        Alert.alert('Error', 'No se pudo subir la imagen: ' + (uploadError.message || JSON.stringify(uploadError)));
+        setUploadingAvatar(false);
+        return;
+      }
 
-      const { data: { publicUrl } } = supabase.storage
+      const { data: publicData } = supabase.storage
         .from('post-images')
         .getPublicUrl(fileName);
 
+      const publicUrl = publicData?.publicUrl;
+
+      if (!publicUrl) {
+        Alert.alert('Error', 'No se pudo obtener la URL pública de la imagen.');
+        setUploadingAvatar(false);
+        return;
+      }
+
+      // Cache-buster para que la imagen se refresque en pantalla inmediatamente
+      const publicUrlWithCacheBuster = `${publicUrl}?t=${Date.now()}`;
+
       const { error: updateError } = await supabase
         .from('users')
-        .update({ avatar_url: publicUrl })
+        .update({ avatar_url: publicUrlWithCacheBuster })
         .eq('id', userId);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('avatar update error', updateError);
+        Alert.alert('Error', 'No se pudo actualizar el perfil: ' + (updateError.message || JSON.stringify(updateError)));
+        setUploadingAvatar(false);
+        return;
+      }
 
-      setUserProfile({ ...userProfile, avatar_url: publicUrl });
-      Alert.alert("Éxito", "Foto de perfil actualizada");
+      setUserProfile({ ...userProfile, avatar_url: publicUrlWithCacheBuster });
+      Alert.alert('Éxito', 'Foto de perfil actualizada');
     } catch (error: any) {
       Alert.alert("Error", error.message);
     } finally {
@@ -123,17 +162,17 @@ export default function MyPostsScreen({ navigation }: any) {
             <Text style={styles.timestamp}>Publicado por ti</Text>
           </View>
         </View>
-        
+
         <Text style={styles.postContent}>{item.content}</Text>
 
         {item.image_url && (
-          <Image 
-            source={{ uri: item.image_url }} 
-            style={styles.postImage} 
+          <Image
+            source={{ uri: item.image_url }}
+            style={styles.postImage}
             resizeMode="cover"
           />
         )}
-        
+
         <View style={styles.postActions}>
           <View style={styles.actionItem}>
             <LucideIcons.Heart size={20} color="#64748b" />
@@ -178,10 +217,10 @@ export default function MyPostsScreen({ navigation }: any) {
               </View>
               {uploadingAvatar && <ActivityIndicator style={styles.loader} color="#2563eb" />}
             </TouchableOpacity>
-            
+
             <Text style={styles.profileName}>{userProfile?.nombre} {userProfile?.apellido}</Text>
             <Text style={styles.profileUser}>@{userProfile?.username}</Text>
-            
+
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{posts.length}</Text>
@@ -196,7 +235,7 @@ export default function MyPostsScreen({ navigation }: any) {
         refreshing={loading && posts.length > 0}
         ListEmptyComponent={
           loading ? (
-            <ActivityIndicator color="#2563eb" size="large" style={{marginTop: 50}} />
+            <ActivityIndicator color="#2563eb" size="large" style={{ marginTop: 50 }} />
           ) : (
             <Text style={styles.emptyText}>No has publicado nada aún.</Text>
           )
